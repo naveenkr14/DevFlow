@@ -1,0 +1,232 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum WorkspaceRole {
+  ADMIN
+  MANAGER
+  DEVELOPER
+  VIEWER
+}
+
+model User {
+  id           String   @id @default(uuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  sessions       Session[]
+  workspaces     Workspace[]       @relation("WorkspaceOwner")
+  memberships    WorkspaceMember[]
+  reportedIssues Issue[]            @relation("IssueReporter")
+  assignedIssues Issue[]            @relation("IssueAssignee")
+  comments       Comment[]
+  activities     Activity[]
+}
+
+model Session {
+  id        String   @id @default(uuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model Workspace {
+  id        String   @id @default(uuid())
+  name      String
+  slug      String   @unique
+  ownerId   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner      User              @relation("WorkspaceOwner", fields: [ownerId], references: [id])
+  members    WorkspaceMember[]
+  projects   Project[]
+  activities Activity[]
+
+  @@index([ownerId])
+}
+
+model WorkspaceMember {
+  id          String        @id @default(uuid())
+  workspaceId String
+  userId      String
+  role        WorkspaceRole @default(DEVELOPER)
+  createdAt   DateTime      @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, userId])
+  @@index([userId])
+  @@index([workspaceId])
+}
+
+enum ProjectStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+model Project {
+  id           String        @id @default(uuid())
+  workspaceId  String
+  name         String
+  key          String
+  description  String?
+  status       ProjectStatus @default(ACTIVE)
+  issueCounter Int           @default(0)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  issues    Issue[]
+  labels    Label[]
+
+  @@unique([workspaceId, key])
+  @@index([workspaceId])
+}
+
+enum IssueStatus {
+  TODO
+  IN_PROGRESS
+  IN_REVIEW
+  DONE
+}
+
+enum IssuePriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+model Issue {
+  id          String        @id @default(uuid())
+  projectId   String
+  issueNumber Int
+
+  title       String
+  description String?
+
+  status   IssueStatus   @default(TODO)
+  priority IssuePriority @default(MEDIUM)
+
+  reporterId String
+  assigneeId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project  Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  reporter User    @relation("IssueReporter", fields: [reporterId], references: [id])
+  assignee User?   @relation("IssueAssignee", fields: [assigneeId], references: [id])
+
+  comments Comment[]
+  labels   IssueLabel[]
+
+  @@unique([projectId, issueNumber])
+  @@index([projectId])
+  @@index([reporterId])
+  @@index([assigneeId])
+  @@index([status])
+}
+
+model Comment {
+  id        String   @id @default(uuid())
+  issueId   String
+  authorId  String
+
+  content String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  issue  Issue @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  author User  @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([issueId])
+  @@index([authorId])
+}
+
+model Label {
+  id        String   @id @default(uuid())
+  projectId String
+
+  name  String
+  color String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  issues  IssueLabel[]
+
+  @@unique([projectId, name])
+  @@index([projectId])
+}
+
+model IssueLabel {
+  issueId String
+  labelId String
+
+  issue Issue @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  label Label @relation(fields: [labelId], references: [id], onDelete: Cascade)
+
+  @@id([issueId, labelId])
+  @@index([labelId])
+}
+
+enum ActivityAction {
+  ISSUE_CREATED
+  ISSUE_UPDATED
+  ISSUE_STATUS_CHANGED
+  ISSUE_ASSIGNED
+  ISSUE_PRIORITY_CHANGED
+  COMMENT_CREATED
+  COMMENT_UPDATED
+  COMMENT_DELETED
+  LABEL_CREATED
+  LABEL_UPDATED
+  LABEL_DELETED
+  LABEL_ADDED_TO_ISSUE
+  LABEL_REMOVED_FROM_ISSUE
+}
+
+enum ActivityEntityType {
+  ISSUE
+  COMMENT
+  LABEL
+}
+
+model Activity {
+  id          String              @id @default(uuid())
+  workspaceId String
+  userId      String
+  action      ActivityAction
+  entityType  ActivityEntityType
+  entityId    String
+
+  metadata Json?
+
+  createdAt DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, createdAt])
+  @@index([userId])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+}
